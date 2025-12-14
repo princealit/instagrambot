@@ -1,0 +1,30 @@
+# Instagram Bot - Demographic Filter & Outreach
+# Core dependencies
+
+# Apify client for scraping
+apify-client>=1.6.0
+
+# Instagram automation
+instagrapi>=2.0.0
+
+# AI/ML for demographic inference
+openai>=1.0.0
+gender-guesser>=0.4.0
+
+# HTTP and async
+httpx>=0.25.0
+aiohttp>=3.9.0
+
+# Data handling
+pydantic>=2.0.0
+python-dotenv>=1.0.0
+
+# Rate limiting and safety
+ratelimit>=2.2.1
+
+# Logging
+structlog>=23.0.0
+
+# CLI interface
+typer>=0.9.0
+rich>=13.0.0
