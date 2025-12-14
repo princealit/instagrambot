@@ -23,6 +23,7 @@ load_dotenv()
 
 from src.bot import InstagramBot, BotConfig
 from src.models import DemographicCriteria, Gender
+from src.demographics import AudienceAnalyzer, AudienceDemographics
 
 app = typer.Typer(help="Instagram Demographic Filter & Outreach Bot")
 console = Console()
@@ -261,6 +262,100 @@ def analyze(
 
     display_profiles(profiles)
     console.print(f"\n[bold]Analyzed {len(profiles)} profiles[/bold]")
+
+
+@app.command()
+def audience(
+    username: str = typer.Option(..., "--username", "-u", help="Instagram account to analyze audience"),
+    target_gender: Optional[str] = typer.Option(None, "--gender", "-g", help="Target gender in audience: male/female"),
+    min_gender_pct: float = typer.Option(40.0, "--min-gender-pct", help="Minimum % of audience matching gender"),
+    target_age_min: Optional[int] = typer.Option(None, "--age-min", help="Target audience minimum age"),
+    target_age_max: Optional[int] = typer.Option(None, "--age-max", help="Target audience maximum age"),
+    min_age_pct: float = typer.Option(30.0, "--min-age-pct", help="Minimum % of audience in age range"),
+    target_country: Optional[str] = typer.Option(None, "--country", "-c", help="Target country (e.g., 'United States')"),
+    min_country_pct: float = typer.Option(20.0, "--min-country-pct", help="Minimum % of audience from country"),
+    json_file: Optional[str] = typer.Option(None, "--json", "-j", help="Load audience data from JSON file"),
+):
+    """
+    Check if an account's AUDIENCE (followers) matches your target demographic.
+
+    Use this to find accounts where the followers match your ideal customer profile.
+    E.g., find accounts where 50%+ followers are men aged 40-60 in California.
+
+    You can input data manually from tools like:
+    - Favikon (free Chrome extension)
+    - Modash (10 free searches/day)
+    - HypeAuditor (limited free reports)
+    """
+    console.print(f"\n[bold]Audience Demographics Analysis[/bold]")
+    console.print(f"Account: @{username}")
+
+    analyzer = AudienceAnalyzer()
+
+    # Load from JSON or prompt for manual input
+    if json_file:
+        demographics_list = analyzer.from_json(json_file)
+        demographics = next((d for d in demographics_list if d.username == username), None)
+        if not demographics:
+            console.print(f"[red]No data for @{username} in JSON file[/red]")
+            return
+    else:
+        console.print("\n[yellow]Enter audience data from Favikon/Modash/HypeAuditor:[/yellow]")
+        console.print("[dim](Leave blank to skip a field)[/dim]\n")
+
+        male_pct = typer.prompt("Male followers %", default="", show_default=False)
+        female_pct = typer.prompt("Female followers %", default="", show_default=False)
+
+        console.print("\n[dim]Age breakdown (enter percentages):[/dim]")
+        age_data = {}
+        for age_range in ["18-24", "25-34", "35-44", "45-54", "55-64", "65+"]:
+            val = typer.prompt(f"  {age_range} %", default="", show_default=False)
+            if val:
+                age_data[age_range] = float(val)
+
+        console.print("\n[dim]Top countries (enter 'country: percentage', empty to finish):[/dim]")
+        countries = {}
+        while True:
+            entry = typer.prompt("  Country", default="", show_default=False)
+            if not entry:
+                break
+            if ":" in entry:
+                country, pct = entry.split(":")
+                countries[country.strip()] = float(pct.strip().rstrip("%"))
+
+        demographics = analyzer.from_manual_input(
+            username=username,
+            male_pct=float(male_pct) if male_pct else None,
+            female_pct=float(female_pct) if female_pct else None,
+            age_data=age_data if age_data else None,
+            countries=countries if countries else None,
+        )
+
+    # Display current demographics
+    console.print(f"\n[bold]Audience Demographics for @{username}:[/bold]")
+    console.print(demographics.summary())
+
+    # Check against criteria
+    if target_gender or target_age_min or target_age_max or target_country:
+        matches, details = demographics.matches_criteria(
+            target_gender=target_gender,
+            min_gender_percentage=min_gender_pct,
+            target_age_min=target_age_min,
+            target_age_max=target_age_max,
+            min_age_percentage=min_age_pct,
+            target_country=target_country,
+            min_country_percentage=min_country_pct,
+        )
+
+        console.print(f"\n[bold]Criteria Check:[/bold]")
+        for check in details["checks"]:
+            status = "[green]✓ PASS[/green]" if check["passed"] else "[red]✗ FAIL[/red]"
+            console.print(f"  {check['type'].title()}: {check['actual']:.1f}% (need {check['threshold']}%) {status}")
+
+        if matches:
+            console.print(f"\n[bold green]✓ This account's audience MATCHES your target![/bold green]")
+        else:
+            console.print(f"\n[bold red]✗ This account's audience does NOT match your target[/bold red]")
 
 
 @app.command()

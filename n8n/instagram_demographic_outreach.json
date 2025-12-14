@@ -1,0 +1,684 @@
+{
+  "name": "Instagram Demographic Outreach",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "target_accounts",
+              "value": "={{ $json.target_accounts || 'garyvee,taborster' }}"
+            },
+            {
+              "name": "target_gender",
+              "value": "male"
+            },
+            {
+              "name": "target_age_min",
+              "value": "40"
+            },
+            {
+              "name": "target_age_max",
+              "value": "60"
+            },
+            {
+              "name": "target_country",
+              "value": "United States"
+            },
+            {
+              "name": "min_following",
+              "value": "750"
+            },
+            {
+              "name": "max_followers_to_process",
+              "value": "50"
+            },
+            {
+              "name": "dm_message",
+              "value": "Hey {name}! I came across your profile and love your content. Would love to connect!"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "config",
+      "name": "Configuration",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [460, 300],
+      "notesInFlow": true,
+      "notes": "Configure your targeting criteria here"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apify.com/v2/acts/apify~instagram-profile-scraper/runs",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"usernames\": {{ $json.target_accounts.split(',') }}\n}",
+        "options": {}
+      },
+      "id": "scrape_target_profiles",
+      "name": "1. Scrape Target Accounts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [680, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "apify_auth",
+          "name": "Apify API Token"
+        }
+      },
+      "notesInFlow": true,
+      "notes": "Get profile info for accounts you want to target followers from"
+    },
+    {
+      "parameters": {
+        "amount": 30,
+        "unit": "seconds"
+      },
+      "id": "wait_for_scrape",
+      "name": "Wait for Scrape",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.apify.com/v2/acts/apify~instagram-profile-scraper/runs/{{ $json.data.id }}/dataset/items",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "get_profile_results",
+      "name": "Get Profile Results",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1120, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "apify_auth",
+          "name": "Apify API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract usernames for follower scraping\nconst profiles = $input.all();\nconst usernames = profiles.map(p => p.json.username);\n\nreturn [{\n  json: {\n    usernames: usernames,\n    config: $('Configuration').first().json\n  }\n}];"
+      },
+      "id": "prepare_follower_scrape",
+      "name": "Prepare Follower Scrape",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apify.com/v2/acts/apify~instagram-scraper/runs",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"usernames\": {{ $json.usernames }},\n  \"resultsType\": \"followers\",\n  \"resultsLimit\": {{ $json.config.max_followers_to_process }}\n}",
+        "options": {}
+      },
+      "id": "scrape_followers",
+      "name": "2. Scrape Followers",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1560, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "apify_auth",
+          "name": "Apify API Token"
+        }
+      },
+      "notesInFlow": true,
+      "notes": "Get followers from target accounts"
+    },
+    {
+      "parameters": {
+        "amount": 60,
+        "unit": "seconds"
+      },
+      "id": "wait_for_followers",
+      "name": "Wait for Followers",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [1780, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.apify.com/v2/acts/apify~instagram-scraper/runs/{{ $json.data.id }}/dataset/items",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "get_followers_results",
+      "name": "Get Followers",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2000, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "apify_auth",
+          "name": "Apify API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Filter followers by following count (>= 750)\nconst config = $('Configuration').first().json;\nconst minFollowing = parseInt(config.min_following) || 750;\n\nconst followers = $input.all();\nconst qualified = followers.filter(f => {\n  const followingCount = f.json.followsCount || f.json.following_count || 0;\n  const isPrivate = f.json.isPrivate || f.json.is_private || false;\n  \n  // Must follow >= 750 people and be public\n  return followingCount >= minFollowing && !isPrivate;\n});\n\nconsole.log(`Filtered ${followers.length} followers to ${qualified.length} qualified (following >= ${minFollowing}, public)`);\n\nreturn qualified.map(f => ({\n  json: {\n    username: f.json.username,\n    full_name: f.json.fullName || f.json.full_name || '',\n    following_count: f.json.followsCount || f.json.following_count,\n    follower_count: f.json.followersCount || f.json.follower_count,\n    biography: f.json.biography || f.json.bio || '',\n    is_private: false,\n    config: config\n  }\n}));"
+      },
+      "id": "filter_by_following",
+      "name": "3. Filter: Following >= 750 & Public",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2220, 300],
+      "notesInFlow": true,
+      "notes": "Only keep followers who follow 750+ people and have public profiles"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Infer demographics from profile data\nconst profile = $input.first().json;\n\n// Gender inference from name\nconst maleNames = ['james','john','robert','michael','william','david','richard','joseph','thomas','christopher','charles','daniel','matthew','anthony','mark','donald','steven','paul','andrew','joshua','kenneth','kevin','brian','george','timothy','ronald','edward','jason','jeffrey','ryan','jacob','gary','nicholas','eric','jonathan','stephen','larry','justin','scott','brandon','benjamin','samuel','raymond','gregory','frank','alexander','patrick','jack','dennis','jerry','tyler','aaron','jose','adam','nathan','henry','douglas','zachary','peter','kyle','noah','ethan','jeremy','walter','christian','keith','roger','terry','austin','sean','gerald','carl','harold','dylan','arthur','lawrence','jordan','jesse','bryan','billy','bruce','gabriel','joe','logan','albert','willie','alan','eugene','russell','vincent','philip','bobby','johnny','bradley'];\nconst femaleNames = ['mary','patricia','jennifer','linda','elizabeth','barbara','susan','jessica','sarah','karen','lisa','nancy','betty','margaret','sandra','ashley','kimberly','emily','donna','michelle','dorothy','carol','amanda','melissa','deborah','stephanie','rebecca','sharon','laura','cynthia','kathleen','amy','angela','shirley','anna','brenda','pamela','emma','nicole','helen','samantha','katherine','christine','debra','rachel','carolyn','janet','catherine','maria','heather','diane','ruth','julie','olivia','joyce','virginia','victoria','kelly','lauren','christina','joan','evelyn','judith','megan','andrea','cheryl','hannah','jacqueline','martha','gloria','teresa','ann','sara','madison','frances','kathryn','janice','jean','abigail','alice','judy','sophia','grace','denise','amber','doris','marilyn','danielle','beverly','isabella','theresa','diana','natalie','brittany','charlotte','marie','kayla','alexis','lori'];\n\nconst firstName = (profile.full_name || '').split(' ')[0].toLowerCase();\nlet inferredGender = 'unknown';\nlet genderConfidence = 0;\n\nif (maleNames.includes(firstName)) {\n  inferredGender = 'male';\n  genderConfidence = 0.85;\n} else if (femaleNames.includes(firstName)) {\n  inferredGender = 'female';\n  genderConfidence = 0.85;\n}\n\n// Check bio for gender hints\nconst bio = (profile.biography || '').toLowerCase();\nconst maleKeywords = ['dad', 'father', 'husband', 'he/him', 'businessman', 'mr.', 'king', 'brother'];\nconst femaleKeywords = ['mom', 'mother', 'wife', 'she/her', 'businesswoman', 'mrs.', 'queen', 'sister', 'mama'];\n\nif (maleKeywords.some(k => bio.includes(k))) {\n  inferredGender = 'male';\n  genderConfidence = Math.max(genderConfidence, 0.9);\n}\nif (femaleKeywords.some(k => bio.includes(k))) {\n  inferredGender = 'female';\n  genderConfidence = Math.max(genderConfidence, 0.9);\n}\n\n// Age inference from bio\nlet inferredAgeMin = null;\nlet inferredAgeMax = null;\nlet ageConfidence = 0;\n\n// Look for age patterns\nconst ageMatch = bio.match(/(\\d{1,2})\\s*(?:years?\\s*old|y\\/?o|yrs)/i);\nif (ageMatch) {\n  const age = parseInt(ageMatch[1]);\n  if (age >= 13 && age <= 100) {\n    inferredAgeMin = age - 2;\n    inferredAgeMax = age + 2;\n    ageConfidence = 0.85;\n  }\n}\n\n// Look for birth year\nconst birthMatch = bio.match(/born\\s*(?:in\\s*)?(19|20)(\\d{2})/i);\nif (birthMatch && !inferredAgeMin) {\n  const birthYear = parseInt(birthMatch[1] + birthMatch[2]);\n  const currentYear = new Date().getFullYear();\n  const age = currentYear - birthYear;\n  if (age >= 13 && age <= 100) {\n    inferredAgeMin = age - 1;\n    inferredAgeMax = age + 1;\n    ageConfidence = 0.9;\n  }\n}\n\nreturn [{\n  json: {\n    ...profile,\n    inferred_gender: inferredGender,\n    gender_confidence: genderConfidence,\n    inferred_age_min: inferredAgeMin,\n    inferred_age_max: inferredAgeMax,\n    age_confidence: ageConfidence\n  }\n}];"
+      },
+      "id": "infer_demographics",
+      "name": "4. Infer Demographics",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2440, 300],
+      "notesInFlow": true,
+      "notes": "Analyze name and bio to infer gender and age"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "gender_match",
+              "leftValue": "={{ $json.inferred_gender }}",
+              "rightValue": "={{ $json.config.target_gender }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "gender_confidence",
+              "leftValue": "={{ $json.gender_confidence }}",
+              "rightValue": 0.5,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "filter_demographics",
+      "name": "5. Filter by Demographics",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [2660, 300],
+      "notesInFlow": true,
+      "notes": "Only keep profiles matching target gender with sufficient confidence"
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {
+          "reset": false
+        }
+      },
+      "id": "split_batches",
+      "name": "Process One at a Time",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [2880, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apify.com/v2/acts/apify~instagram-scraper/runs",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"usernames\": [\"{{ $json.username }}\"],\n  \"resultsType\": \"posts\",\n  \"resultsLimit\": 3\n}",
+        "options": {}
+      },
+      "id": "get_recent_posts",
+      "name": "6. Get Recent Posts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [3100, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "apify_auth",
+          "name": "Apify API Token"
+        }
+      },
+      "notesInFlow": true,
+      "notes": "Fetch 3 recent posts to like"
+    },
+    {
+      "parameters": {
+        "amount": 15,
+        "unit": "seconds"
+      },
+      "id": "wait_posts",
+      "name": "Wait for Posts",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [3320, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.apify.com/v2/acts/apify~instagram-scraper/runs/{{ $json.data.id }}/dataset/items",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "get_posts_results",
+      "name": "Get Posts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [3540, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "apify_auth",
+          "name": "Apify API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare data for Instagram actions\nconst posts = $input.all();\nconst profile = $('5. Filter by Demographics').first().json;\n\n// Get post IDs to like\nconst postIds = posts.slice(0, 3).map(p => p.json.id || p.json.pk);\n\n// Personalize message\nconst name = (profile.full_name || '').split(' ')[0] || profile.username;\nconst message = (profile.config.dm_message || 'Hey!')\n  .replace('{name}', name)\n  .replace('{username}', profile.username);\n\nreturn [{\n  json: {\n    username: profile.username,\n    user_id: profile.user_id,\n    full_name: profile.full_name,\n    post_ids: postIds,\n    dm_message: message,\n    inferred_gender: profile.inferred_gender,\n    inferred_age_min: profile.inferred_age_min,\n    inferred_age_max: profile.inferred_age_max\n  }\n}];"
+      },
+      "id": "prepare_actions",
+      "name": "Prepare Actions",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3760, 300]
+    },
+    {
+      "parameters": {
+        "url": "=http://localhost:5000/api/like",
+        "method": "POST",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"post_ids\": {{ $json.post_ids }}\n}",
+        "options": {}
+      },
+      "id": "like_posts",
+      "name": "7. Like 3 Posts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [3980, 200],
+      "notesInFlow": true,
+      "notes": "Call your Instagram API to like posts"
+    },
+    {
+      "parameters": {
+        "amount": "={{ Math.floor(Math.random() * 60) + 30 }}",
+        "unit": "seconds"
+      },
+      "id": "random_delay",
+      "name": "Random Delay (30-90s)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [4200, 200]
+    },
+    {
+      "parameters": {
+        "url": "=http://localhost:5000/api/dm",
+        "method": "POST",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"username\": \"{{ $json.username }}\",\n  \"message\": \"{{ $json.dm_message }}\"\n}",
+        "options": {}
+      },
+      "id": "send_dm",
+      "name": "8. Send DM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [4420, 200],
+      "notesInFlow": true,
+      "notes": "Send personalized DM"
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "status",
+              "value": "completed"
+            },
+            {
+              "name": "username",
+              "value": "={{ $('Prepare Actions').first().json.username }}"
+            },
+            {
+              "name": "posts_liked",
+              "value": "={{ $('Prepare Actions').first().json.post_ids.length }}"
+            },
+            {
+              "name": "dm_sent",
+              "value": "true"
+            },
+            {
+              "name": "inferred_demographics",
+              "value": "={{ $('Prepare Actions').first().json.inferred_gender }} {{ $('Prepare Actions').first().json.inferred_age_min }}-{{ $('Prepare Actions').first().json.inferred_age_max }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "log_result",
+      "name": "Log Result",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [4640, 200]
+    },
+    {
+      "parameters": {
+        "amount": "={{ Math.floor(Math.random() * 60) + 60 }}",
+        "unit": "seconds"
+      },
+      "id": "delay_next",
+      "name": "Delay Before Next (60-120s)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [4860, 200]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Configuration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Configuration": {
+      "main": [
+        [
+          {
+            "node": "1. Scrape Target Accounts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "1. Scrape Target Accounts": {
+      "main": [
+        [
+          {
+            "node": "Wait for Scrape",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for Scrape": {
+      "main": [
+        [
+          {
+            "node": "Get Profile Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Profile Results": {
+      "main": [
+        [
+          {
+            "node": "Prepare Follower Scrape",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Follower Scrape": {
+      "main": [
+        [
+          {
+            "node": "2. Scrape Followers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "2. Scrape Followers": {
+      "main": [
+        [
+          {
+            "node": "Wait for Followers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for Followers": {
+      "main": [
+        [
+          {
+            "node": "Get Followers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Followers": {
+      "main": [
+        [
+          {
+            "node": "3. Filter: Following >= 750 & Public",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3. Filter: Following >= 750 & Public": {
+      "main": [
+        [
+          {
+            "node": "4. Infer Demographics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4. Infer Demographics": {
+      "main": [
+        [
+          {
+            "node": "5. Filter by Demographics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "5. Filter by Demographics": {
+      "main": [
+        [
+          {
+            "node": "Process One at a Time",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process One at a Time": {
+      "main": [
+        [
+          {
+            "node": "6. Get Recent Posts",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "6. Get Recent Posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "6. Get Recent Posts": {
+      "main": [
+        [
+          {
+            "node": "Wait for Posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for Posts": {
+      "main": [
+        [
+          {
+            "node": "Get Posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Posts": {
+      "main": [
+        [
+          {
+            "node": "Prepare Actions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Actions": {
+      "main": [
+        [
+          {
+            "node": "7. Like 3 Posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "7. Like 3 Posts": {
+      "main": [
+        [
+          {
+            "node": "Random Delay (30-90s)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Random Delay (30-90s)": {
+      "main": [
+        [
+          {
+            "node": "8. Send DM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "8. Send DM": {
+      "main": [
+        [
+          {
+            "node": "Log Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Result": {
+      "main": [
+        [
+          {
+            "node": "Delay Before Next (60-120s)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Delay Before Next (60-120s)": {
+      "main": [
+        [
+          {
+            "node": "Process One at a Time",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "instagram",
+      "id": "1"
+    },
+    {
+      "name": "automation",
+      "id": "2"
+    }
+  ],
+  "triggerCount": 1,
+  "updatedAt": "2024-01-01T00:00:00.000Z",
+  "versionId": "1"
+}
